@@ -1,0 +1,19 @@
+{
+    "name": "gas",
+    "private": true,
+    "version": "1.0.0",
+    "description": "",
+    "main": "main.ts",
+    "scripts": {
+        "tsc": "tsc",
+        "format": "prettier --write src"
+    },
+    "author": "Oka4shi",
+    "license": "MIT",
+    "devDependencies": {
+        "@tsconfig/recommended": "^1.0.3",
+        "@types/google-apps-script": "^1.0.78",
+        "typescript": "^5.3.3",
+        "prettier": "^3.1.1"
+    }
+}

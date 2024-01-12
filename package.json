@@ -1,0 +1,28 @@
+{
+    "name": "gmail-slack-notify",
+    "version": "1.0.0",
+    "description": "",
+    "main": "main.ts",
+    "scripts": {
+        "tsc": "tsc",
+        "format": "prettier --write src"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sohosai/gmail-webhook-notify"
+    },
+    "author": "Oka4shi",
+    "bugs": {
+        "url": "https://github.com/sohosai/gmail-webhook-notify/issues"
+    },
+    "homepage": "https://github.com/sohosai/google-webhook-notify#readme",
+    "devDependencies": {
+        "@tsconfig/recommended": "^1.0.3",
+        "@types/google-apps-script": "^1.0.78",
+        "typescript": "^5.3.3",
+        "prettier": "^3.1.1"
+    },
+    "workspaces": [
+        "gas"
+    ]
+}
