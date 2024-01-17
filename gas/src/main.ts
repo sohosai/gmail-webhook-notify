@@ -11,8 +11,8 @@ function main() {
     pastMails = pastMails.filter((id) => {
         const mail = GmailApp.getMessageById(id);
         const date = mail.getDate();
-        // 24時間以内に来たものだけを抽出
-        return now.getTime() - date.getTime() < 1000 * 60 * 60 * 24;
+        // 12時間以内に来たものだけを抽出
+        return now.getTime() - date.getTime() < 1000 * 60 * 60 * 12;
     });
 
     let shouldContinue = true;
@@ -26,9 +26,9 @@ function main() {
                 const id = message.getId();
                 const date = message.getDate();
 
-                if (now.getTime() - date.getTime() < 1000 * 60 * 60 * 24 && !pastMails.includes(id)) {
+                if (now.getTime() - date.getTime() < 1000 * 60 * 60 * 12 && !pastMails.includes(id)) {
                     shouldContinue = true;
-                    // メールが24時間以内に来たもので、かつ通知済みでないとき
+                    // メールが12時間以内に来たもので、かつ通知済みでないとき
                     pastMails = pastMails.filter((i) => id !== i);
                     const content =
                         `送信元: ${message.getFrom()} \n` +
