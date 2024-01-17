@@ -142,7 +142,12 @@ function setProperty(key: string, value: string): GoogleAppsScript.Properties.Pr
 }
 
 function formatDate(date: Date | GoogleAppsScript.Base.Date) {
-    return `${date.getFullYear()}/${
-        date.getMonth() + 1
-    }/${date.getDate()} ${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
+    return (
+        `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ` +
+        `${zeroPadding(date.getHours(), 2)}:${zeroPadding(date.getMinutes(), 2)}:${zeroPadding(date.getSeconds(), 2)}`
+    );
+}
+
+function zeroPadding(value: number | string, diget: number): string {
+    return String(value).padStart(diget, "0");
 }
