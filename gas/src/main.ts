@@ -1,7 +1,15 @@
 const PROPERTY_NAME_PAST_MAILS = "pastMails" as const;
+const MODES = ["Discord", "Slack"] as const;
+type modes_type = (typeof MODES)[number];
 
 function main() {
-    const webhook = new Webhook(getProperty("WEBHOOK_URL"));
+    const mode = getProperty("MODE");
+    if (!(mode === MODES[0] || mode === MODES[1])) {
+        console.error("The mode is invalid. It must be Discord or Slack");
+        return;
+    }
+
+    const webhook = new Webhook(getProperty("WEBHOOK_URL"), mode);
 
     let pastMails = loadIDs(PROPERTY_NAME_PAST_MAILS);
 
@@ -30,13 +38,9 @@ function main() {
                     shouldContinue = true;
                     // メールが12時間以内に来たもので、かつ通知済みでないとき
                     pastMails = pastMails.filter((i) => id !== i);
-                    const content =
-                        `送信元: ${message.getFrom()} \n` +
-                        `受信日時: ${formatDate(date)}\n` +
-                        `件名: ${message.getSubject()}`;
 
                     try {
-                        webhook.send(content);
+                        webhook.send(message.getFrom(), date, message.getSubject());
                         // 送信部分でエラーが発生した場合、即座にtry内から抜けるため以下は実行されない
                         pastMails.push(id);
                     } catch (e) {
@@ -51,9 +55,11 @@ function main() {
 
 class Webhook {
     url = "";
+    mode: modes_type;
 
-    constructor(url: string) {
+    constructor(url: string, mode: modes_type) {
         this.url = url;
+        this.mode = mode;
     }
 
     _callAPI(
@@ -92,8 +98,43 @@ class Webhook {
         };
     }
 
-    send(message: string) {
-        const result = this._callAPI(this.url, "post", { text: message });
+    send(from: string, date: Date | GoogleAppsScript.Base.Date, subject: string) {
+        let body = {};
+        if (this.mode == "Slack") {
+            const content = `*送信元*: ${from} \n` + `*受信日時*: ${formatDate(date)}\n` + `*件名*: ${subject}`;
+
+            body = {
+                attachments: [
+                    {
+                        color: "#ed6d1f",
+                        blocks: [
+                            {
+                                type: "section",
+                                text: {
+                                    type: "mrkdwn",
+                                    text: content,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            };
+        } else if (this.mode == "Discord") {
+            body = {
+                embeds: [
+                    {
+                        title: subject,
+                        type: "rich",
+                        timestamp: date.toISOString(),
+                        color: 15559967, // #ed6d1f を10進数に変換したもの
+                        author: {
+                            name: from,
+                        },
+                    },
+                ],
+            };
+        }
+        const result = this._callAPI(this.url, "post", body);
         if (result.error) {
             throw new Error("Failed to call webhook");
         }
