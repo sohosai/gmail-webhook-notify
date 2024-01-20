@@ -14,6 +14,7 @@ function main() {
     let pastMails = loadIDs(PROPERTY_NAME_PAST_MAILS);
 
     const now = new Date();
+    const myEmail = Session.getActiveUser().getEmail();
 
     // pastMailsの掃除
     pastMails = pastMails.filter((id) => {
@@ -33,14 +34,19 @@ function main() {
             messages.forEach((message) => {
                 const id = message.getId();
                 const date = message.getDate();
+                const from = message.getFrom();
 
-                if (now.getTime() - date.getTime() < 1000 * 60 * 60 * 12 && !pastMails.includes(id)) {
+                if (
+                    from != myEmail &&
+                    now.getTime() - date.getTime() < 1000 * 60 * 60 * 12 &&
+                    !pastMails.includes(id)
+                ) {
                     shouldContinue = true;
-                    // メールが12時間以内に来たもので、かつ通知済みでないとき
+                    // 送信元が自分のメールアドレスでなく、かつメールが12時間以内に来たもので、かつ通知済みでないとき
                     pastMails = pastMails.filter((i) => id !== i);
 
                     try {
-                        webhook.send(message.getFrom(), date, message.getSubject());
+                        webhook.send(from, date, message.getSubject());
                         // 送信部分でエラーが発生した場合、即座にtry内から抜けるため以下は実行されない
                         pastMails.push(id);
                     } catch (e) {
