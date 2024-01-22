@@ -18,7 +18,14 @@ function main() {
 
     // pastMailsの掃除
     pastMails = pastMails.filter((id) => {
-        const mail = GmailApp.getMessageById(id);
+        let mail: GoogleAppsScript.Gmail.GmailMessage;
+        try {
+            mail = GmailApp.getMessageById(id);
+        } catch {
+            // メールの検索でエラーが出たときもそのメールを取り除く
+            return false;
+        }
+
         const date = mail.getDate();
         // 12時間以内に来たものだけを抽出
         return now.getTime() - date.getTime() < 1000 * 60 * 60 * 12;
