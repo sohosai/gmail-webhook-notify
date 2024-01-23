@@ -1,0 +1,20 @@
+name: Auto Build
+
+on: [push]
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: npm install, and tsc
+        run: |
+          npm install
+          npm run -w gas tsc
+      - name: Archive production artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            gas/dist/main.js
