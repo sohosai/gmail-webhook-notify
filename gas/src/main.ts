@@ -44,7 +44,7 @@ function main() {
                 const from = message.getFrom();
 
                 if (
-                    from.includes(myEmail) &&
+                    !from.includes(myEmail) &&
                     now.getTime() - date.getTime() < 1000 * 60 * 60 * 12 &&
                     !pastMails.includes(id)
                 ) {
