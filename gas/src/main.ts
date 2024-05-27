@@ -114,23 +114,10 @@ class Webhook {
     send(from: string, date: Date | GoogleAppsScript.Base.Date, subject: string) {
         let body = {};
         if (this.mode == "Slack") {
-            const content = `*送信元*: ${from} \n` + `*受信日時*: ${formatDate(date)}\n` + `*件名*: ${subject}`;
+            const content = [`*件名*: ${subject}`, `*送信元*: ${from}`, `*受信日時*: ${formatDate(date)}`].join("\n");
 
             body = {
-                attachments: [
-                    {
-                        color: "#ed6d1f",
-                        blocks: [
-                            {
-                                type: "section",
-                                text: {
-                                    type: "mrkdwn",
-                                    text: content,
-                                },
-                            },
-                        ],
-                    },
-                ],
+                text: content,
             };
         } else if (this.mode == "Discord") {
             body = {
