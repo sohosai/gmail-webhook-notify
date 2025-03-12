@@ -1,6 +1,9 @@
+const NOTIFIED_LABEL_NAME = "通知済み" as const;
 const PROPERTY_NAME_PAST_MAILS = "pastMails" as const;
 const MODES = ["Discord", "Slack"] as const;
 type modes_type = (typeof MODES)[number];
+// 特定ラベルでフィルタリングするためのプロパティ名
+const PROPERTY_FILTER_LABEL = "FILTER_LABEL";
 
 function main() {
     const mode = getProperty("MODE");
@@ -10,60 +13,68 @@ function main() {
     }
 
     const webhook = new Webhook(getProperty("WEBHOOK_URL"), mode);
+    // 通知済みラベルを取得または作成
+    const notifiedLabel = getOrCreateLabel(NOTIFIED_LABEL_NAME);
 
-    let pastMails = loadIDs(PROPERTY_NAME_PAST_MAILS);
+    // フィルタリングラベルの設定を取得
+    const filterLabelName = getProperty(PROPERTY_FILTER_LABEL);
+    // フィルタリングラベルがある場合は取得、なければnullのまま
+    const filterLabel = filterLabelName ? GmailApp.getUserLabelByName(filterLabelName) : null;
 
     const now = new Date();
     const myEmail = Session.getActiveUser().getEmail();
 
-    // pastMailsの掃除
-    pastMails = pastMails.filter((id) => {
-        let mail: GoogleAppsScript.Gmail.GmailMessage;
-        try {
-            mail = GmailApp.getMessageById(id);
-        } catch {
-            // メールの検索でエラーが出たときもそのメールを取り除く
-            return false;
-        }
-
-        const date = mail.getDate();
-        // 12時間以内に来たものだけを抽出
-        return now.getTime() - date.getTime() < 1000 * 60 * 60 * 12;
-    });
-
     let shouldContinue = true;
-    for (let i = 0; shouldContinue; i++) {
-        // 2件ずつ取得
-        const threads = GmailApp.getInboxThreads(i, i + 2);
+    for (let i = 0; shouldContinue && i < 10; i++) { // 最大10ループに制限
+        // 2件ずつ取得(最大10件)
+        const threads = GmailApp.getInboxThreads(i * 2, (i + 1) * 5);
+        let foundNew = false;
+
         threads.forEach((thread) => {
-            shouldContinue = false;
+            const threadLabels = thread.getLabels();
+
+            // 通知済みラベルがついているかチェック
+            const hasNotifiedLabel = threadLabels.some(label => label.getName() === NOTIFIED_LABEL_NAME);
+            if (hasNotifiedLabel) {
+                return; // 既に通知済みの場合はスキップ
+            }
+
+            // フィルタリングラベルが指定されていて、スレッドにそのラベルがない場合はスキップ
+            if (filterLabel && !threadLabels.some(label => label.getName() === filterLabel.getName())) {
+                return; // このスレッドを処理せずにスキップ
+            }
+
             const messages = thread.getMessages();
             messages.forEach((message) => {
-                const id = message.getId();
                 const date = message.getDate();
                 const from = message.getFrom();
 
-                if (
-                    !from.includes(myEmail) &&
-                    now.getTime() - date.getTime() < 1000 * 60 * 60 * 12 &&
-                    !pastMails.includes(id)
-                ) {
-                    shouldContinue = true;
-                    // 送信元が自分のメールアドレスでなく、かつメールが12時間以内に来たもので、かつ通知済みでないとき
-                    pastMails = pastMails.filter((i) => id !== i);
-
+                if (!from.includes(myEmail) &&
+                    now.getTime() - date.getTime() < 1000 * 60 * 60 * 12) {
+                    foundNew = true;
+                    // 送信元が自分のメールアドレスでなく、かつメールが12時間以内に来たもの
                     try {
-                        webhook.send(from, date, message.getSubject());
-                        // 送信部分でエラーが発生した場合、即座にtry内から抜けるため以下は実行されない
-                        pastMails.push(id);
+                        webhook.send(from, date, message.getSubject(), message.getPlainBody());
+                        // 送信が成功した場合、通知済みラベルを付与
+                        thread.addLabel(notifiedLabel);
                     } catch (e) {
-                        console.error("Failed to send a message: ", e);
+                        console.error(`Failed to send a message: ${e}`);
                     }
                 }
             });
         });
+
+        shouldContinue = foundNew;
     }
-    saveIDs(PROPERTY_NAME_PAST_MAILS, pastMails);
+}
+
+// 指定した名前のラベルを取得、なければ作成する関数
+function getOrCreateLabel(name: string): GoogleAppsScript.Gmail.GmailLabel {
+    let label = GmailApp.getUserLabelByName(name);
+    if (!label) {
+        label = GmailApp.createLabel(name);
+    }
+    return label;
 }
 
 class Webhook {
@@ -111,24 +122,50 @@ class Webhook {
         };
     }
 
-    send(from: string, date: Date | GoogleAppsScript.Base.Date, subject: string) {
+    send(from: string, date: Date | GoogleAppsScript.Base.Date, subject: string, message: string) {
+        // 文字数制限を適用
+        const truncatedFrom = truncateString(from, 80);
+        const truncatedSubject = truncateString(subject, 256);
+        const truncatedBody = truncateString(message, 1024);
+
         let body = {};
         if (this.mode == "Slack") {
-            const content = [`*件名*: ${subject}`, `*送信元*: ${from}`, `*受信日時*: ${formatDate(date)}`].join("\n");
+            const content = [
+                `*件名*: ${truncatedSubject}`,
+                `*送信元*: ${truncatedFrom}`,
+                `*受信日時*: ${formatDate(date)}`,
+            ].join("\n");
 
             body = {
-                text: content,
+                type: "mrkdwn",
+                pretext: content,
+                attachments: [
+                    {
+                        title: truncatedSubject,
+                        text: truncatedBody,
+                        author_name: truncatedFrom,
+                        ts: date.getTime() / 1000,
+                        color: "#ed6d1f",
+                    }
+                ]
             };
         } else if (this.mode == "Discord") {
             body = {
+                username: truncatedFrom,
+                content: [
+                    `**件名**: ${truncatedSubject}`,
+                    `**送信元**: ${truncatedFrom}`,
+                    `**受信日時**: ${formatDate(date)}`,
+                ].join("\n"),
                 embeds: [
                     {
-                        title: subject,
+                        title: truncatedSubject,
                         type: "rich",
                         timestamp: date.toISOString(),
                         color: 15559967, // #ed6d1f を10進数に変換したもの
+                        description: truncatedBody,
                         author: {
-                            name: from,
+                            name: truncatedFrom,
                         },
                     },
                 ],
@@ -139,37 +176,6 @@ class Webhook {
             throw new Error("Failed to call webhook");
         }
     }
-}
-
-function saveIDs(basePropertyName: string, content: string[]) {
-    const properties = PropertiesService.getScriptProperties();
-    const keys = properties.getKeys().filter((k) => k.includes(basePropertyName));
-    keys.forEach((key) => {
-        properties.deleteProperty(key);
-    });
-
-    // 1つのプロパティーにつき6KBまでで、IDひとつにつき17バイトなので、350個単位に分割する
-    const num = Math.ceil(content.length / 350);
-    for (let i = 0; i < num; i++) {
-        setProperty(`${basePropertyName}${i}`, content.slice(i * 350, i * 350 + 349).join(","));
-    }
-}
-
-function loadIDs(basePropertyName: string): string[] {
-    const properties = PropertiesService.getScriptProperties();
-    const keys = properties.getKeys().filter((k) => k.includes(basePropertyName));
-    const value = keys
-        .map((key) => {
-            const v = getProperty(key);
-            if (v) {
-                return v.split(",");
-            } else {
-                return [];
-            }
-        })
-        .flat();
-
-    return value;
 }
 
 function getProperty(key: string): string {
@@ -184,11 +190,24 @@ function setProperty(key: string, value: string): GoogleAppsScript.Properties.Pr
 
 function formatDate(date: Date | GoogleAppsScript.Base.Date) {
     return (
-        `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ` +
+        `${date.getFullYear()}/${zeroPadding(date.getMonth() + 1, 2)}/${zeroPadding(date.getDate(), 2)} ` +
         `${zeroPadding(date.getHours(), 2)}:${zeroPadding(date.getMinutes(), 2)}:${zeroPadding(date.getSeconds(), 2)}`
     );
 }
 
 function zeroPadding(value: number | string, diget: number): string {
     return String(value).padStart(diget, "0");
+}
+
+/**
+ * 文字列を指定した最大長に制限する
+ * @param str 対象の文字列
+ * @param maxLength 最大文字数
+ * @returns 制限された文字列
+ */
+function truncateString(str: string, maxLength: number): string {
+    if (str.length <= maxLength) {
+        return str;
+    }
+    return str.substring(0, maxLength);
 }
