@@ -135,17 +135,62 @@ class Webhook {
                 `*送信元*: ${truncatedFrom}`,
                 `*受信日時*: ${formatDate(date)}`,
             ].join("\n");
-
             body = {
-                type: "mrkdwn",
-                pretext: content,
-                attachments: [
+                blocks: [
                     {
-                        title: truncatedSubject,
-                        text: truncatedBody,
-                        author_name: truncatedFrom,
-                        ts: date.getTime() / 1000,
-                        color: "#ed6d1f",
+                        type: "section",
+                        text: {
+                            type: "mrkdwn",
+                            text: content,
+                        }
+                    },
+                    {
+                        type: "rich_text",
+                        elements: [
+                            {
+                                type: "rich_text_quote",
+                                elements: [
+                                    {
+                                        type: "text",
+                                        text: truncatedFrom,
+                                        style: {
+                                            bold: true,
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                type: "rich_text_quote",
+                                elements: [
+                                    {
+                                        type: "text",
+                                        text: truncatedSubject,
+                                        style: {
+                                            bold: true,
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                type: "rich_text_quote",
+                                elements: [
+                                    {
+                                        type: "text",
+                                        text: truncatedBody,
+                                    }
+                                ]
+                            },
+                            {
+                                type: "rich_text_quote",
+                                elements: [
+                                    {
+                                        type: "date",
+                                        timestamp: date.getTime(),
+                                        format: "{ago}"
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ]
             };
