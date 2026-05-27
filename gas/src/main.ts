@@ -24,34 +24,48 @@ function main() {
     const now = new Date();
     const myEmail = Session.getActiveUser().getEmail();
 
-    let shouldContinue = true;
-    for (let i = 0; shouldContinue && i < 10; i++) { // 最大10ループに制限
-        // 2件ずつ取得(最大10件)
-        const threads = GmailApp.getInboxThreads(i * 2, (i + 1) * 5);
-        let foundNew = false;
+    const PAGE_SIZE = 5;
+    const MAX_PAGES = 10;
+    const RECENT_THRESHOLD_MS = 1000 * 60 * 60 * 12;
+    // フィルタリングラベルが設定されているかつ実在する場合はそのラベル経由で取得する
+    // (Gmail のフィルタで「受信トレイをスキップ」設定にしているメールも拾うため)
+    const fetchThreads = (start: number, max: number) =>
+        filterLabel
+            ? filterLabel.getThreads(start, max)
+            : GmailApp.getInboxThreads(start, max);
 
-        threads.forEach((thread) => {
+    let aborted = false;
+    for (let i = 0; !aborted && i < MAX_PAGES; i++) {
+        // 5件ずつ重複なくページング (最大 5 * 10 = 50件)
+        const threads = fetchThreads(i * PAGE_SIZE, PAGE_SIZE);
+        if (threads.length === 0) break; // 終端
+
+        // このページに 12時間以内のメールが1通も無ければ、これ以降はもっと古いので打ち切り
+        let hasRecent = false;
+
+        for (const thread of threads) {
+            if (aborted) break;
             const threadLabels = thread.getLabels();
 
             // 通知済みラベルがついているかチェック
             const hasNotifiedLabel = threadLabels.some(label => label.getName() === NOTIFIED_LABEL_NAME);
-            if (hasNotifiedLabel) {
-                return; // 既に通知済みの場合はスキップ
-            }
 
-            // フィルタリングラベルが指定されていて、スレッドにそのラベルがない場合はスキップ
-            if (filterLabel && !threadLabels.some(label => label.getName() === filterLabel.getName())) {
-                return; // このスレッドを処理せずにスキップ
+            // スレッドの最終更新が 12時間以内なら "recent" と判定 (通知済みでも継続判定に使う)
+            const threadRecent =
+                now.getTime() - thread.getLastMessageDate().getTime() < RECENT_THRESHOLD_MS;
+            if (threadRecent) hasRecent = true;
+
+            if (hasNotifiedLabel) {
+                continue;
             }
 
             const messages = thread.getMessages();
-            messages.forEach((message) => {
+            for (const message of messages) {
                 const date = message.getDate();
                 const from = message.getFrom();
 
                 if (!from.includes(myEmail) &&
-                    now.getTime() - date.getTime() < 1000 * 60 * 60 * 12) {
-                    foundNew = true;
+                    now.getTime() - date.getTime() < RECENT_THRESHOLD_MS) {
                     // 送信元が自分のメールアドレスでなく、かつメールが12時間以内に来たもの
                     try {
                         webhook.send(from, date, message.getSubject(), message.getPlainBody());
@@ -59,12 +73,15 @@ function main() {
                         thread.addLabel(notifiedLabel);
                     } catch (e) {
                         console.error(`Failed to send a message: ${e}`);
+                        // 送信失敗時はこれ以上連投せず処理中断 (次回 cron に任せる)
+                        aborted = true;
+                        break;
                     }
                 }
-            });
-        });
+            }
+        }
 
-        shouldContinue = foundNew;
+        if (!hasRecent) break;
     }
 }
 
@@ -104,10 +121,12 @@ class Webhook {
                         "Content-Type": "application/json",
                     },
                     payload: JSON.stringify(body),
+                    muteHttpExceptions: true,
                 });
             } else {
                 res = UrlFetchApp.fetch(url, {
                     method: method,
+                    muteHttpExceptions: true,
                 });
             }
         } catch (e) {
@@ -115,10 +134,11 @@ class Webhook {
             return { error: true };
         }
 
+        const status = res.getResponseCode();
         return {
             response: res.getContentText(),
-            status: res.getResponseCode(),
-            error: false,
+            status: status,
+            error: status < 200 || status >= 300,
         };
     }
 
@@ -217,9 +237,20 @@ class Webhook {
             };
         }
         const result = this._callAPI(this.url, "post", body);
+
         if (result.error) {
-            throw new Error("Failed to call webhook");
+            // 429 はリトライせず即諦める (Cloudflare 1015 は IP 単位の長期ブロックで、
+            // リトライしても更に状況を悪化させるだけのため)
+            if (result.status === 429) {
+                console.warn("Rate limited (429). Aborting this run.");
+            }
+            throw new Error(
+                `Failed to call webhook (status=${result.status ?? "n/a"})`,
+            );
         }
+
+        // レート制限を避けるため、送信ごとに小休止
+        Utilities.sleep(1000);
     }
 }
 
